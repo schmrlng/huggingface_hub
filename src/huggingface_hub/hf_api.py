@@ -24,6 +24,7 @@ from collections import defaultdict
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
+from enum import Enum
 from functools import wraps
 from itertools import islice
 from pathlib import Path
@@ -1644,6 +1645,11 @@ def future_compatible(fn: CallableT) -> CallableT:
 
     _inner.is_future_compatible = True  # type: ignore
     return _inner  # type: ignore
+
+
+class EndpointsScalingMetric(Enum):
+    pending_requests = "pendingRequests"
+    hardware_usage = "hardwareUsage"
 
 
 class HfApi:
@@ -7391,6 +7397,8 @@ class HfApi:
         account_id: Optional[str] = None,
         min_replica: int = 1,
         max_replica: int = 1,
+        scaling_metric: Optional[str | EndpointsScalingMetric] = None,
+        scaling_threshold: Optional[int] = None,
         scale_to_zero_timeout: Optional[int] = None,
         revision: Optional[str] = None,
         task: Optional[str] = None,
@@ -7431,6 +7439,12 @@ class HfApi:
                 scaling to zero, set this value to 0 and adjust `scale_to_zero_timeout` accordingly. Defaults to 1.
             max_replica (`int`, *optional*):
                 The maximum number of replicas (instances) to scale to for the Inference Endpoint. Defaults to 1.
+            scaling_metric (`str`, *optional*):
+                The metric reference for scaling. Either "pendingRequests" or "hardwareUsage" when provided. Optional.
+                Defaults to None (meaning: let the HF Endpoints service specify the metric).
+            scaling_threshold (`int`, *optional*):
+                The scaling metric threshold to trigger a scale up. Optional. Ignored when scaling metric is not
+                provided. Defaults to None (meaning: let the HF Endpoints service specify the threshold).
             scale_to_zero_timeout (`int`, *optional*):
                 The duration in minutes before an inactive endpoint is scaled to zero, or no scaling to zero if
                 set to None and `min_replica` is not 0. Defaults to None.
@@ -7582,6 +7596,9 @@ class HfApi:
             },
             "type": type,
         }
+        if scaling_metric:
+            scaling_metric = EndpointsScalingMetric(scaling_metric)
+            payload["compute"]["scaling"]["measure"] = {scaling_metric.value: scaling_threshold}
         if env:
             payload["model"]["env"] = env
         if secrets:
@@ -7746,6 +7763,8 @@ class HfApi:
         min_replica: Optional[int] = None,
         max_replica: Optional[int] = None,
         scale_to_zero_timeout: Optional[int] = None,
+        scaling_metric: Optional[str | EndpointsScalingMetric] = None,
+        scaling_threshold: Optional[int] = None,
         # Model update
         repository: Optional[str] = None,
         framework: Optional[str] = None,
@@ -7786,7 +7805,12 @@ class HfApi:
                 The maximum number of replicas (instances) to scale to for the Inference Endpoint.
             scale_to_zero_timeout (`int`, *optional*):
                 The duration in minutes before an inactive endpoint is scaled to zero.
-
+            scaling_metric (`str`, *optional*):
+                The metric reference for scaling. Either "pendingRequests" or "hardwareUsage" when provided. Optional.
+                Defaults to None.
+            scaling_threshold (`int`, *optional*):
+                The scaling metric threshold to trigger a scale up. Optional. Ignored when scaling metric is not
+                provided. Defaults to None.
             repository (`str`, *optional*):
                 The name of the model repository associated with the Inference Endpoint (e.g. `"gpt2"`).
             framework (`str`, *optional*):
@@ -7840,6 +7864,9 @@ class HfApi:
             payload["compute"]["scaling"]["minReplica"] = min_replica
         if scale_to_zero_timeout is not None:
             payload["compute"]["scaling"]["scaleToZeroTimeout"] = scale_to_zero_timeout
+        if scaling_metric:
+            scaling_metric = EndpointsScalingMetric(scaling_metric)
+            payload["compute"]["scaling"]["measure"] = {scaling_metric.value: scaling_threshold}
         if repository is not None:
             payload["model"]["repository"] = repository
         if framework is not None:
